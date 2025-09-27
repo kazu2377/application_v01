@@ -7,8 +7,9 @@
 | Stage | 概要                                     | 実装状況 |
 | ----- | ---------------------------------------- | -------- |
 | 1     | ローカルヒューリスティック (本リポ)      | ✅       |
+| 1.5   | Gemini API 試験統合 (LLM ヒント - 任意)  | ✅       |
 | 2     | Supabase 永続化 (ユーザ/スニペット/履歴) | ⏳       |
-| 3     | MCP / LLM (モデル経由ヒント生成)         | ⏳       |
+| 3     | MCP / LLM (モデル選択・高度ヒント)       | ⏳       |
 
 ## セットアップ
 
@@ -21,7 +22,7 @@ pnpm dev     # -> http://localhost:3000
 
 （pnpm が無ければ `npm install -g pnpm`）
 
-## 機能 (Stage 1)
+## 機能 (Stage 1 / 1.5)
 
 - シンプルなコード入力 (textarea オートリサイズ)
 - 入力 400ms デバウンス後 `/api/hints` へ POST
@@ -33,6 +34,25 @@ pnpm dev     # -> http://localhost:3000
   - 連続 `console.log` の注意
   - 行数増加の分割提案
 - ヒントが無い場合の「次の試行」促し
+- (任意) Gemini LLM モード: `GEMINI_API_KEY` を設定すると UI で Heuristic / LLM / Hybrid 切替
+
+### Gemini 連携 (任意)
+
+環境変数をセットして開発サーバを起動:
+
+```bash
+export GEMINI_API_KEY="YOUR_API_KEY"
+pnpm dev
+```
+
+PowerShell:
+
+```powershell
+$Env:GEMINI_API_KEY="YOUR_API_KEY"
+pnpm dev
+```
+
+`mode=llm` では LLM ヒントのみ、`mode=heuristic` は従来ロジック、`mode=hybrid` は両方表示。
 
 ## 今後の予定 (例)
 
@@ -49,6 +69,7 @@ pnpm dev     # -> http://localhost:3000
 - React 18
 - Tailwind CSS
 - TypeScript (緩い設定 / strict=false)
+- (任意) Gemini API (@google/generative-ai)
 
 ## ディレクトリ概要
 
