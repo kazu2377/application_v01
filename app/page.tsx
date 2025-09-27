@@ -95,7 +95,7 @@ export default function Home() {
       fetch("/api/hints", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, mode: mode === "llm" ? "llm" : "llm" }),
+        body: JSON.stringify({ code, mode: mode === "llm" ? "llm" : "hybrid" }),
       })
         .then((r) => r.json())
         .then((data) => {
