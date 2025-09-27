@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CodeEditor } from "./components/CodeEditor";
 
 interface HintItem {
@@ -15,13 +15,30 @@ export default function Home() {
   const [code, setCode] = useState<string>(
     "// ここに JavaScript/TypeScript のコードを書き始めてください\n"
   );
-  const [hints, setHints] = useState<any[]>([]);
-  const [llmHints, setLlmHints] = useState<string[]>([]);
+  const [hints, setHints] = useState<any[]>([]); // heuristic
+  const [llmHints, setLlmHints] = useState<string[]>([]); // llm
   const [mode, setMode] = useState<Mode>("heuristic");
   const [loading, setLoading] = useState(false);
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmCountdown, setLlmCountdown] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Debounced fetch
+  const llmTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSentLLMHashRef = useRef<string | null>(null);
+
+  const LLM_DELAY_MS = 6000; // 6 秒後に LLM 呼び出し
+  const HEURISTIC_DEBOUNCE_MS = 400; // 変更即応性重視
+
+  function simpleHash(str: string): string {
+    let h = 0,
+      i = 0,
+      len = str.length;
+    while (i < len) h = (h * 31 + str.charCodeAt(i++)) | 0;
+    return h.toString();
+  }
+
+  // Heuristic: 400ms デバウンスで即取得
   useEffect(() => {
     setError(null);
     const t = setTimeout(() => {
@@ -29,17 +46,75 @@ export default function Home() {
       fetch("/api/hints", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, mode }),
+        body: JSON.stringify({ code, mode: "heuristic" }),
       })
         .then((r) => r.json())
         .then((data) => {
           if (data?.heuristic) setHints(data.heuristic);
-          if (data?.llm) setLlmHints(data.llm);
         })
         .catch((e) => setError(e.message))
         .finally(() => setLoading(false));
-    }, 500); // 500ms debounce (LLM考慮で少し延長)
+    }, HEURISTIC_DEBOUNCE_MS);
     return () => clearTimeout(t);
+  }, [code]);
+
+  // LLM: 6秒アイドル後に実行 (mode が llm / hybrid のとき)
+  useEffect(() => {
+    // 既存タイマークリア
+    if (llmTimerRef.current) clearTimeout(llmTimerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    setLlmCountdown(null);
+
+    if (mode === "heuristic") {
+      setLlmHints([]);
+      return; // 不要
+    }
+
+    // 変更されたコードのハッシュ
+    const hash = simpleHash(code);
+
+    // 直前と同一なら再取得しない (微小変更対策は後で差分計算に拡張可)
+    if (hash === lastSentLLMHashRef.current) {
+      return;
+    }
+
+    // カウントダウン開始
+    const start = Date.now();
+    setLlmCountdown(Math.ceil(LLM_DELAY_MS / 1000));
+    countdownIntervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - start;
+      const remain = Math.max(0, LLM_DELAY_MS - elapsed);
+      setLlmCountdown(Math.ceil(remain / 1000));
+      if (remain <= 0 && countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
+    }, 1000);
+
+    llmTimerRef.current = setTimeout(() => {
+      setLlmLoading(true);
+      fetch("/api/hints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, mode: mode === "llm" ? "llm" : "llm" }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.llm) {
+            setLlmHints(data.llm);
+            lastSentLLMHashRef.current = hash;
+          }
+        })
+        .catch((e) => setError(e.message))
+        .finally(() => {
+          setLlmLoading(false);
+          setLlmCountdown(null);
+        });
+    }, LLM_DELAY_MS);
+
+    return () => {
+      if (llmTimerRef.current) clearTimeout(llmTimerRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    };
   }, [code, mode]);
 
   return (
@@ -91,7 +166,12 @@ export default function Home() {
       <section>
         <div className="flex items-center gap-3 mb-2">
           <h2 className="font-medium text-sm tracking-wide text-slate-300">Hints ({mode})</h2>
-          {loading && <span className="text-xs text-cyan-400 animate-pulse">更新中...</span>}
+          {(loading || llmLoading) && (
+            <span className="text-xs text-cyan-400 animate-pulse flex items-center gap-1">
+              {loading && <span>H</span>}
+              {llmLoading && <span>LLM</span>}
+            </span>
+          )}
         </div>
         {error && <div className="text-xs text-red-400 mb-2">{error}</div>}
         <div className="grid gap-4 md:grid-cols-2">
@@ -135,7 +215,10 @@ export default function Home() {
                   </div>
                 </li>
               ))}
-              {!loading && llmHints.length === 0 && (
+              {!llmLoading && llmCountdown !== null && (
+                <li className="text-[11px] text-slate-500">LLM 呼び出し待機中… {llmCountdown}s</li>
+              )}
+              {!llmLoading && llmCountdown === null && llmHints.length === 0 && (
                 <li className="text-xs text-slate-500">LLM ヒントなし</li>
               )}
             </ul>
